@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+Todays threads/
+.chat_summary.md
+*.log
+AGENT_HANDOFF.md
+build/
+dist/
+*.egg-info/
+.cursor/
