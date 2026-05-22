@@ -45,7 +45,7 @@ FALLBACK_MODELS = [
     "lightning-ai/llama-3.3-70b",
 ]
 
-MODES = ["Brand Voice", "Grammar Only", "Shorten", "Formal", "Casual"]
+MODES = ["Brand Voice", "Grammar Only", "Shorten", "Formal", "Casual", "Custom Voice"]
 
 # map mode name to rules filename (no extension)
 MODE_TO_FILENAME = {
@@ -54,6 +54,7 @@ MODE_TO_FILENAME = {
     "Shorten": "shorten",
     "Formal": "formal",
     "Casual": "casual",
+    "Custom Voice": "custom-voice",
 }
 
 DEFAULT_HOTKEY_REWRITE = "<cmd>+<ctrl>+g"

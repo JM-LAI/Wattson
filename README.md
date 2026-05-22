@@ -64,7 +64,7 @@ On first launch, macOS should prompt you automatically. If it doesn't:
 3. Press **Cmd+Ctrl+M** to cycle between modes
 4. Press **Cmd+Ctrl+Z** to undo the last rewrite
 
-The menu bar shows the active mode: **W** (Brand Voice), **Gram** (Grammar), **Short** (Shorten), **Form** (Formal), **Chill** (Casual).
+The menu bar shows the active mode: **W** (Brand Voice), **Gram** (Grammar), **Short** (Shorten), **Form** (Formal), **Chill** (Casual), **You** (Custom Voice).
 
 ## Quick Launch Alias
 
@@ -84,6 +84,7 @@ source ~/.zshrc
 | **Shorten** | Make it shorter, keep all meaning and technical details. |
 | **Formal** | Polish to professional tone. |
 | **Casual** | Soften to friendly, approachable tone. |
+| **Custom Voice** | Your own rules — fully user-defined, never overwritten on update. |
 
 All modes powered by Gemma 4 31B on Lightning AI (free tier). If a model is down, Wattson automatically falls back to the next available model and lets you know. Switch models from the menu bar.
 
@@ -94,6 +95,14 @@ Every mode's prompt is a plain text file you can edit:
 **Menu bar → Edit Rules → [mode]** opens the file in your default text editor.
 
 Rules live at `~/Library/Application Support/wattson/rules/`. Changes take effect on the next rewrite — no restart needed. To restore defaults: **Menu bar → Edit Rules → Reset All Rules**.
+
+### Custom Voice
+
+The **Custom Voice** mode is yours to define however you want. Cycle to it with Cmd+Ctrl+M or select it from the menu bar.
+
+Edit it via **Menu bar → Edit Rules → Custom Voice** — the file opens in your text editor. Describe your personal tone, list things to avoid, give examples. The entire file contents become the system prompt.
+
+**This file is never overwritten** — not on updates, not on "Reset All Rules". It persists across installs. If you delete it, a starter template is recreated on next launch.
 
 ## Features
 

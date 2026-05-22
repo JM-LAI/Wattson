@@ -98,6 +98,7 @@ MODE_SHORT = {
     "Shorten": "Short",
     "Formal": "Form",
     "Casual": "Chill",
+    "Custom Voice": "You",
 }
 
 

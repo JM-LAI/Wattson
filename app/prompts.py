@@ -122,8 +122,34 @@ Rules:
 }
 
 
+CUSTOM_VOICE_TEMPLATE = """\
+# Custom Voice — your personal rewrite rules
+# This file is YOURS. It won't be overwritten on updates or resets.
+# Edit it however you like. The entire contents become the system prompt.
+#
+# Tips:
+# - Describe the tone you want (e.g. "Sound like a friendly senior engineer")
+# - List things to avoid (e.g. "Never use exclamation marks")
+# - Give examples of before/after if that helps
+# - Keep the "Output only the rewritten message" line so it doesn't add fluff
+
+You are a writing assistant. Rewrite the message that follows using my personal voice.
+
+Output only the improved message — no preamble, labels, or commentary.
+Never respond as a chatbot. Never ask for clarification. Always rewrite the input as-is.
+
+Rules:
+- Sound like me — natural, direct, and human
+- Fix grammar and spelling
+- Keep all technical details exactly as written
+- Preserve code blocks and terminal output
+- Don't make it longer than necessary
+"""
+
+
 def ensure_rules_dir():
-    """Create rules dir and write defaults. Auto-updates stale rules when prompt version bumps."""
+    """Create rules dir and write defaults. Auto-updates stale rules when prompt version bumps.
+    Custom Voice is never overwritten — it belongs to the user."""
     from app.config import PROMPT_VERSION
     from app.settings import read_state, write_state
 
@@ -141,6 +167,13 @@ def ensure_rules_dir():
                 f.write(prompt)
             os.chmod(path, 0o600)
 
+    # custom voice: create starter template only if it doesn't exist yet
+    custom_path = os.path.join(RULES_DIR, "custom-voice.txt")
+    if not os.path.exists(custom_path):
+        with open(custom_path, "w", encoding="utf-8") as f:
+            f.write(CUSTOM_VOICE_TEMPLATE)
+        os.chmod(custom_path, 0o600)
+
     if needs_update:
         state["prompt_version"] = PROMPT_VERSION
         write_state(state)
@@ -157,14 +190,19 @@ def get_system_prompt(mode: str) -> str:
     path = get_rules_path(mode)
     if path.exists():
         return path.read_text(encoding="utf-8").strip()
+    if mode == "Custom Voice":
+        return CUSTOM_VOICE_TEMPLATE.strip()
     filename = MODE_TO_FILENAME.get(mode, "brand-voice")
     return DEFAULT_PROMPTS.get(filename, DEFAULT_PROMPTS["brand-voice"])
 
 
 def reset_rules(mode: str = None):
-    """Restore rules file(s) to hardcoded defaults. None = reset all."""
+    """Restore rules file(s) to hardcoded defaults. None = reset all.
+    Custom Voice is never reset — it belongs to the user."""
     os.makedirs(RULES_DIR, exist_ok=True)
     if mode:
+        if mode == "Custom Voice":
+            return  # never reset user's custom rules
         filename = MODE_TO_FILENAME.get(mode, "brand-voice")
         path = os.path.join(RULES_DIR, f"{filename}.txt")
         with open(path, "w", encoding="utf-8") as f:
