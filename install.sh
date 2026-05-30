@@ -238,6 +238,17 @@ printf "${CYAN}${LINE}${RESET}\n\n"
 
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "$CERT_NAME"; then
     ok "Signing certificate already exists"
+    # ensure partition list is set (fixes keychain popup loop for existing certs)
+    info "Verifying codesign access..."
+    if ! codesign --force --sign "$CERT_NAME" /dev/null 2>/dev/null; then
+        printf "    ${YELLOW}Enter your Mac login password to fix keychain access:${RESET} "
+        read -rs kc_pass
+        echo ""
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+          -k "$kc_pass" ~/Library/Keychains/login.keychain-db 2>/dev/null && \
+          ok "Keychain access fixed" || \
+          warn "Could not update keychain — you may see a prompt during signing"
+    fi
 else
     info "Creating self-signed certificate (one-time setup)..."
     info "This ensures permissions persist across app updates."
@@ -252,15 +263,26 @@ else
       -in /tmp/wattson.crt -inkey /tmp/wattson.key \
       -out /tmp/wattson.p12 -password pass:wattson 2>/dev/null
 
+    # import with -A flag so all apps (including codesign) can use without prompting
     security import /tmp/wattson.p12 -k ~/Library/Keychains/login.keychain-db \
-      -P wattson -T /usr/bin/codesign 2>/dev/null
+      -P wattson -A 2>/dev/null
+
+    # set partition list so codesign never triggers a keychain dialog
+    printf "\n${YELLOW}  Enter your Mac login password to authorize code signing:${RESET}\n"
+    printf "${GREY}  (This prevents repeated keychain popups)${RESET}\n"
+    printf "${WHITE}  Password: ${RESET}"
+    read -rs kc_pass
+    echo ""
+    security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+      -k "$kc_pass" ~/Library/Keychains/login.keychain-db 2>/dev/null || \
+      warn "Could not set partition list — you may see a keychain prompt when signing"
 
     # trust it for code signing
     security find-certificate -c "$CERT_NAME" -p ~/Library/Keychains/login.keychain-db > /tmp/wattson_cert.pem
     sudo security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db /tmp/wattson_cert.pem 2>/dev/null
 
     rm -f /tmp/wattson.key /tmp/wattson.crt /tmp/wattson.p12 /tmp/wattson_cert.pem
-    ok "Certificate created and trusted"
+    ok "Certificate created and trusted (no keychain prompts on future signs)"
 fi
 
 # -----------------------------------------------------------------------
