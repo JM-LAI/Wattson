@@ -16,13 +16,14 @@ from app.settings import (
     get_api_key, set_api_key,
     is_first_run, add_history_entry,
 )
-from app.prompts import ensure_rules_dir, get_rules_path, reset_rules
+from app.prompts import ensure_rules_dir, get_rules_path, get_rca_path, reset_rules
 from app.clipboard import copy_selection, replace_selection
 from app.llm import rewrite
 from app.hotkeys import HotkeyListener
 from app.ui import (
     notify_success, notify_error, play_sound,
     show_preview, record_hotkey, run_onboarding,
+    show_rca_window, set_confluence_token_dialog,
 )
 
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -193,7 +194,7 @@ class WattsonApp(rumps.App):
         time.sleep(0.5)
         _bring_to_front()
         rumps.alert(
-            title="Brand Voice — Input Monitoring",
+            title="Wattson — Input Monitoring",
             message=(
                 "Almost there! Hotkeys need Input Monitoring permission.\n\n"
                 "I've opened the settings and highlighted Wattson.app in Finder.\n\n"
@@ -218,7 +219,7 @@ class WattsonApp(rumps.App):
         time.sleep(0.5)
         _bring_to_front()
         rumps.alert(
-            title="Brand Voice — Permissions Needed",
+            title="Wattson — Permissions Needed",
             message=(
                 "Hotkeys won't work until you enable permissions.\n\n"
                 "I've opened Accessibility settings AND highlighted "
@@ -274,6 +275,8 @@ class WattsonApp(rumps.App):
             rumps.MenuItem("Preview Before Paste", callback=self._toggle_preview),
             rumps.MenuItem("Sound on Complete", callback=self._toggle_sound),
             None,
+            rumps.MenuItem("Generate RCA…", callback=self._on_generate_rca),
+            None,
             self._settings_submenu(),
             None,
             rumps.MenuItem("Restart", callback=self._restart),
@@ -304,6 +307,7 @@ class WattsonApp(rumps.App):
             item = rumps.MenuItem(f"{mode}...", callback=self._edit_rules)
             items.append(item)
         items.append(None)  # separator
+        items.append(rumps.MenuItem("RCA...", callback=self._edit_rca_rules))
         items.append(rumps.MenuItem("Reset All to Defaults", callback=self._reset_all_rules))
         return {"Edit Rules": items}
 
@@ -325,6 +329,7 @@ class WattsonApp(rumps.App):
     def _settings_submenu(self):
         return {"Settings": [
             rumps.MenuItem("API Key...", callback=self._set_api_key),
+            rumps.MenuItem("Set Confluence Token...", callback=self._set_confluence_token),
             None,
             rumps.MenuItem("Set Rewrite Hotkey...", callback=self._set_rewrite_hotkey),
             rumps.MenuItem("Set Cycle Mode Hotkey...", callback=self._set_cycle_hotkey),
@@ -668,6 +673,25 @@ class WattsonApp(rumps.App):
         else:
             ensure_rules_dir()
             subprocess.Popen(["open", "-t", str(path)])
+
+    def _edit_rca_rules(self, _):
+        path = get_rca_path()
+        if not path.exists():
+            ensure_rules_dir()
+        subprocess.Popen(["open", "-t", str(path)])
+
+    def _on_generate_rca(self, _):
+        try:
+            show_rca_window()
+        except Exception as e:
+            log(f"Failed to open RCA window: {e}")
+            rumps.notification(title="Wattson", subtitle="RCA", message=f"Couldn't open RCA window: {e}")
+
+    def _set_confluence_token(self, _):
+        try:
+            set_confluence_token_dialog()
+        except Exception as e:
+            log(f"Confluence token dialog failed: {e}")
 
     def _reset_all_rules(self, _):
         result = rumps.alert(

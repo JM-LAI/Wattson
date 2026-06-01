@@ -14,6 +14,7 @@ CHAT_API_URL = "https://lightning.ai/api/v1/chat/completions"
 
 KEYCHAIN_ACCOUNT = APP_NAME
 KEYCHAIN_API_KEY_SERVICE = "lightning-api-key"
+KEYCHAIN_CONFLUENCE_TOKEN_SERVICE = "confluence-api-token"
 
 # old branding constants for migration
 OLD_APP_NAME = "brand-voice-agent"
@@ -22,6 +23,10 @@ OLD_APP_SUPPORT = os.path.join(
 )
 
 DEFAULT_MODEL = "lightning-ai/gemma-4-31B-it"
+
+# RCA generation is a big task — use a capable model + long timeout
+RCA_MODEL = "lightning-ai/deepseek-v4-pro"
+RCA_TIMEOUT = 120
 
 # display name -> model ID, ordered by preference for fallback
 MODELS = {
@@ -72,7 +77,7 @@ LAUNCHAGENT_PATH = os.path.join(
 )
 
 # bump this when default prompts change — triggers auto-regeneration of rules files
-PROMPT_VERSION = 4
+PROMPT_VERSION = 8
 
 DEFAULT_STATE = {
     "enabled": True,
@@ -87,4 +92,6 @@ DEFAULT_STATE = {
     "history": [],
     "prompt_version": 0,
     "input_monitoring_prompted": False,
+    "confluence_base_url": "",
+    "confluence_email": "",
 }

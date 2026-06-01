@@ -106,6 +106,7 @@ Edit it via **Menu bar → Edit Rules → Custom Voice** — the file opens in y
 
 ## Features
 
+- **RCA generator** — turn a Slack incident + Rootly page into a polished HTML Root Cause Analysis (PST timeline)
 - **Auto-failover** — if a model is down, Wattson tries the next one and tells you which it used
 - **Preview before paste** — review and edit the rewrite before it replaces your text
 - **Undo** — Cmd+Ctrl+Z pastes back the original
@@ -119,6 +120,37 @@ Edit it via **Menu bar → Edit Rules → Custom Voice** — the file opens in y
 - **Dark mode** — preview window adapts to system appearance
 - **CLI mode** — for scripts and automation (see below)
 
+## RCA Generator
+
+Turn an incident into a polished Root Cause Analysis document. Wattson takes a Slack channel dump plus the Rootly/Confluence incident page and produces a clean, self-contained HTML RCA (header block, impact summary, PST timeline table, root cause with 5-whys, resolution, lessons learned).
+
+**Menu bar → Generate RCA…** opens the window:
+
+1. (Optional) Enter the incident title and who's reporting it.
+2. Paste a Rootly/Confluence URL and click **Fetch** (needs a Confluence token — see below), or paste the page content into the box manually.
+3. Paste the full Slack incident thread into the Slack box.
+4. Click **Generate RCA**.
+
+The finished HTML is saved to `~/Library/Application Support/wattson/rca/`, copied to your clipboard, and opened in your browser. Review it, then paste into a new Confluence page.
+
+- **All timeline times are normalized to PST.**
+- It never invents facts — missing fields show as "Unknown".
+- Any secrets that appear in the dump are redacted.
+- The RCA prompt is editable: **Menu bar → Edit Rules → RCA**.
+
+### Confluence API setup (optional — enables URL fetch)
+
+Without a token you can still paste page content manually. To fetch by URL:
+
+1. Go to `https://id.atlassian.com/manage-profile/security/api-tokens`
+2. Click **Create API token**, name it (e.g. "Wattson RCA"), and copy it
+3. In Wattson: **Settings → Set Confluence Token**, then enter:
+   - **Site / base URL** — e.g. `https://your-org.atlassian.net`
+   - **Atlassian account email** — e.g. `you@example.com`
+   - **API token** — the one you just created
+
+The token is stored in your macOS Keychain; the base URL and email live in `state.json`. Auth uses standard Atlassian Basic auth (`email:token`), and the token only needs read access to Confluence pages.
+
 ## CLI Mode
 
 ```bash
@@ -127,6 +159,17 @@ cd ~/Wattson
 
 # use a specific mode
 .venv/bin/python -m app.main --text "your message" --mode "Grammar Only"
+
+# generate an RCA from a Slack dump + a fetched Rootly page
+.venv/bin/python -m app.main --rca \
+  --slack-file ./slack-dump.txt \
+  --rootly-url "https://your-org.atlassian.net/wiki/spaces/IM/pages/123456/Incident" \
+  --title "Demeter Nodes Unable to Mount NFS" \
+  --reported-by "Your Name, Technical Support Manager" \
+  --out ./rca.html
+
+# or from pasted files (no token needed)
+.venv/bin/python -m app.main --rca --slack-file ./slack.txt --rootly-file ./rootly.txt --out ./rca.html
 
 # show all options
 .venv/bin/python -m app.main --help
@@ -207,10 +250,12 @@ System Settings → Privacy & Security → Accessibility / Input Monitoring — 
 | App bundle | `~/Applications/Wattson.app` |
 | Source code | `~/Wattson/app/` |
 | Rules files | `~/Library/Application Support/wattson/rules/` |
+| Generated RCAs | `~/Library/Application Support/wattson/rca/` |
 | State/config | `~/Library/Application Support/wattson/state.json` |
 | Logs | `~/Library/Logs/wattson.log` |
 | LaunchAgent | `~/Library/LaunchAgents/com.local.wattson.plist` |
 | API key | macOS Keychain (service: `lightning-api-key`) |
+| Confluence token | macOS Keychain (service: `confluence-api-token`) |
 
 ## Architecture
 
@@ -222,7 +267,9 @@ app/
   hotkeys.py    — pynput global hotkey listener (daemon thread)
   clipboard.py  — Quartz CGEvent clipboard simulation
   llm.py        — Lightning AI chat completions client with auto-failover
-  prompts.py    — load/save editable rules from disk
+  prompts.py    — load/save editable rules + RCA prompt from disk
+  rca.py        — RCA generation (incident data -> HTML)
+  confluence.py — fetch Rootly/Confluence pages via Atlassian API token
   settings.py   — state.json + macOS Keychain
   config.py     — constants, model list, defaults
 ```

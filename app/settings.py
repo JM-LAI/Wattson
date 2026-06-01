@@ -6,6 +6,7 @@ import time
 from app.config import (
     APP_SUPPORT, STATE_PATH, LOG_PATH, DEFAULT_STATE,
     KEYCHAIN_ACCOUNT, KEYCHAIN_API_KEY_SERVICE,
+    KEYCHAIN_CONFLUENCE_TOKEN_SERVICE,
 )
 
 
@@ -93,6 +94,35 @@ def set_api_key(key: str):
 
 def is_first_run() -> bool:
     return get_api_key() is None
+
+
+def get_confluence_token() -> str | None:
+    return _keychain_get(KEYCHAIN_CONFLUENCE_TOKEN_SERVICE)
+
+
+def set_confluence_token(token: str):
+    _keychain_set(KEYCHAIN_CONFLUENCE_TOKEN_SERVICE, token)
+    log("Confluence token updated in Keychain")
+
+
+def get_confluence_creds() -> tuple[str, str, str] | None:
+    """Return (base_url, email, token) if all are set, else None."""
+    state = read_state()
+    base_url = (state.get("confluence_base_url") or "").strip().rstrip("/")
+    email = (state.get("confluence_email") or "").strip()
+    token = get_confluence_token()
+    if base_url and email and token:
+        return base_url, email, token
+    return None
+
+
+def set_confluence_config(base_url: str, email: str, token: str):
+    """Save Confluence base URL + email to state, token to Keychain."""
+    state = read_state()
+    state["confluence_base_url"] = base_url.strip().rstrip("/")
+    state["confluence_email"] = email.strip()
+    write_state(state)
+    set_confluence_token(token.strip())
 
 
 def add_history_entry(state: dict, original: str, rewritten: str):

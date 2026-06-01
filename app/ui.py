@@ -334,6 +334,368 @@ def show_preview(original: str, rewritten: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# RCA Generator Window
+# ---------------------------------------------------------------------------
+
+class _RCAHandler(_NSObject):
+    """Button handlers for the RCA generator window. Module-level to avoid ObjC redefinition."""
+
+    def _set_status(self, msg):
+        from app.tray import _run_on_main_thread
+        _run_on_main_thread(self._status.setStringValue_, msg)
+
+    def doFetch_(self, sender):
+        try:
+            url = self._url_field.stringValue().strip()
+        except Exception as e:
+            log(f"RCA fetch click error: {e}")
+            return
+        if not url:
+            self._set_status("Enter a Rootly/Confluence URL first, or just paste below.")
+            return
+        log("RCA: fetch clicked")
+        self._set_status("Fetching page…")
+
+        def work():
+            from app.confluence import fetch_page_full, ConfluenceError
+            from app.tray import _run_on_main_thread
+            try:
+                info = fetch_page_full(url)
+                _run_on_main_thread(self._rootly_tv.setString_, info["text"])
+                # autofill title/reporter from the page if the user left them blank
+                if info.get("title") and not self._title_field.stringValue().strip():
+                    _run_on_main_thread(self._title_field.setStringValue_, info["title"])
+                if info.get("author") and not self._reporter_field.stringValue().strip():
+                    _run_on_main_thread(self._reporter_field.setStringValue_, info["author"])
+                self._set_status(f"Fetched page ({len(info['text'])} chars). Autofilled what we could.")
+            except ConfluenceError as e:
+                self._set_status(str(e))
+            except Exception as e:
+                log(f"RCA fetch failed: {e}")
+                self._set_status(f"Fetch failed: {str(e)[:120]}")
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def doGenerate_(self, sender):
+        log("RCA: generate clicked")
+        try:
+            slack = self._slack_tv.string()
+            rootly = self._rootly_tv.string()
+            title = self._title_field.stringValue()
+            reported_by = self._reporter_field.stringValue()
+            also_html = self._html_checkbox.state() == 1
+        except Exception as e:
+            log(f"RCA generate click error: {e}")
+            self._set_status(f"Couldn't read the inputs: {str(e)[:120]}")
+            return
+        if not slack.strip() and not rootly.strip():
+            self._set_status("Paste a Slack dump and/or fetch a Rootly page first.")
+            return
+        self._set_status("Generating RCA… this can take up to a couple of minutes.")
+
+        def work():
+            from app.rca import generate_rca, save_rca
+            try:
+                md = generate_rca(slack, rootly, title, reported_by, fmt="md")
+                md_path = save_rca(md, title, ext="md")
+                _copy_to_clipboard(md)
+                msg = f"Done. Markdown saved + copied to clipboard.\n{md_path}"
+                if also_html:
+                    html = generate_rca(slack, rootly, title, reported_by, fmt="html")
+                    html_path = save_rca(html, title, ext="html")
+                    subprocess.Popen(["open", html_path])
+                    msg += f"\nHTML also saved + opened: {html_path}"
+                else:
+                    subprocess.Popen(["open", "-t", md_path])
+                self._set_status(msg)
+            except Exception as e:
+                log(f"RCA generate failed: {e}")
+                self._set_status(f"Failed: {str(e)[:160]}")
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def doClose_(self, sender):
+        # hide, don't destroy — keeps whatever's typed for next time
+        self._panel.orderOut_(None)
+
+
+# keep references so the window/handler aren't garbage collected while open
+_rca_window_ref = None
+_rca_handler_ref = None
+_edit_menu_installed = False
+_key_monitor_ref = None
+
+
+def _install_paste_monitor():
+    """Make Cmd+C/V/X/A/Z work in our text boxes.
+
+    The Edit menu route is flaky for LSUIElement apps, so we also drop in a
+    local key-event monitor that fires the standard editing selectors straight
+    at the responder chain. Belt and braces.
+    """
+    global _key_monitor_ref
+    if _key_monitor_ref is not None:
+        return
+    from AppKit import (
+        NSEvent, NSEventMaskKeyDown, NSEventModifierFlagCommand, NSApplication,
+    )
+
+    sel_map = {"x": "cut:", "c": "copy:", "v": "paste:", "a": "selectAll:", "z": "undo:"}
+
+    def handler(event):
+        try:
+            if event.modifierFlags() & NSEventModifierFlagCommand:
+                ch = (event.charactersIgnoringModifiers() or "").lower()
+                sel = sel_map.get(ch)
+                if sel:
+                    app = NSApplication.sharedApplication()
+                    if app.sendAction_to_from_(sel, None, app.keyWindow()):
+                        return None  # handled — swallow the event
+        except Exception:
+            pass
+        return event
+
+    _key_monitor_ref = NSEvent.addLocalMonitorForEventsMatchingMask_handler_(
+        NSEventMaskKeyDown, handler
+    )
+
+
+def _install_edit_menu():
+    """Give the app an Edit menu so Cmd+C/V/X/A work in text fields.
+
+    Menu-bar (LSUIElement) apps have no main menu by default, so the standard
+    editing key-equivalents never route to the focused text view. Adding an Edit
+    menu with nil-target selectors fixes paste/copy/cut/select-all everywhere.
+    """
+    global _edit_menu_installed
+    if _edit_menu_installed:
+        return
+    from AppKit import NSMenu, NSMenuItem, NSApplication
+
+    main_menu = NSMenu.alloc().init()
+    edit_item = NSMenuItem.alloc().init()
+    main_menu.addItem_(edit_item)
+
+    edit_menu = NSMenu.alloc().initWithTitle_("Edit")
+    for title, sel, key in (
+        ("Cut", "cut:", "x"),
+        ("Copy", "copy:", "c"),
+        ("Paste", "paste:", "v"),
+        ("Select All", "selectAll:", "a"),
+    ):
+        item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, sel, key)
+        edit_menu.addItem_(item)
+    edit_item.setSubmenu_(edit_menu)
+
+    NSApplication.sharedApplication().setMainMenu_(main_menu)
+    _edit_menu_installed = True
+
+
+def show_rca_window():
+    """Open the RCA generator window: inputs for Slack dump + Rootly page, generate to HTML."""
+    global _rca_window_ref, _rca_handler_ref
+    from AppKit import (
+        NSPanel, NSTextField, NSTextView, NSScrollView, NSButton,
+        NSFont, NSApplication, NSColor,
+        NSWindowStyleMaskTitled, NSWindowStyleMaskClosable, NSWindowStyleMaskResizable,
+        NSBackingStoreBuffered, NSBezelStyleRounded, NSMakeRect,
+    )
+
+    # if a window already exists (maybe just hidden behind something), reuse it
+    # so we don't pop a fresh empty one and lose what was already filled in.
+    if _rca_window_ref is not None:
+        try:
+            NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+            _rca_window_ref.makeKeyAndOrderFront_(None)
+            return
+        except Exception:
+            _rca_window_ref = None  # stale ref, fall through and rebuild
+
+    dark = _is_dark_mode()
+    w, h = 640, 720
+    pad = 16
+    field_w = w - pad * 2
+
+    panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+        NSMakeRect(180, 140, w, h),
+        NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable,
+        NSBackingStoreBuffered,
+        False,
+    )
+    panel.setTitle_("Generate RCA")
+    panel.setHidesOnDeactivate_(False)  # stay open when user clicks away to grab the URL
+    panel.setBecomesKeyOnlyIfNeeded_(False)
+    panel.setReleasedWhenClosed_(False)  # keep the object + its filled fields alive when closed
+    content = panel.contentView()
+    handler = _RCAHandler.alloc().init()
+    handler._panel = panel
+
+    def label(text, yy, bold=True):
+        lbl = NSTextField.labelWithString_(text)
+        lbl.setFrame_(NSMakeRect(pad, yy, field_w, 18))
+        lbl.setFont_(NSFont.boldSystemFontOfSize_(12.0) if bold else NSFont.systemFontOfSize_(11.0))
+        content.addSubview_(lbl)
+        return lbl
+
+    def text_view(yy, height):
+        scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(pad, yy, field_w, height))
+        scroll.setHasVerticalScroller_(True)
+        scroll.setBorderType_(1)
+        tv = NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, field_w - 20, height))
+        tv.setEditable_(True)
+        tv.setRichText_(False)
+        tv.setFont_(NSFont.fontWithName_size_("Menlo", 12.0) or NSFont.systemFontOfSize_(12.0))
+        if dark:
+            tv.setBackgroundColor_(NSColor.colorWithRed_green_blue_alpha_(0.18, 0.18, 0.18, 1.0))
+            tv.setTextColor_(NSColor.colorWithRed_green_blue_alpha_(0.92, 0.92, 0.92, 1.0))
+        scroll.setDocumentView_(tv)
+        content.addSubview_(scroll)
+        return tv
+
+    def single_line_field(yy, width):
+        f = NSTextField.alloc().initWithFrame_(NSMakeRect(pad, yy, width, 24))
+        # keep these one-liners — no newlines pasted/typed in
+        f.setUsesSingleLineMode_(True)
+        f.cell().setWraps_(False)
+        f.cell().setScrollable_(True)
+        return f
+
+    y = h - 36
+
+    # rootly URL + fetch FIRST — fetch autofills the title/reporter below
+    label("1. Rootly / Confluence URL (paste, then Fetch — needs a token):", y)
+    y -= 28
+    handler._url_field = single_line_field(y, field_w - 100)
+    content.addSubview_(handler._url_field)
+    fetch_btn = NSButton.alloc().initWithFrame_(NSMakeRect(w - pad - 90, y - 2, 90, 28))
+    fetch_btn.setTitle_("Fetch")
+    fetch_btn.setBezelStyle_(NSBezelStyleRounded)
+    fetch_btn.setTarget_(handler)
+    fetch_btn.setAction_(objc.selector(handler.doFetch_, signature=b"v@:@"))
+    content.addSubview_(fetch_btn)
+    y -= 34
+
+    # incident title + reported by (auto-filled by Fetch, editable)
+    label("2. Incident title (auto-filled by Fetch, editable):", y)
+    y -= 26
+    handler._title_field = single_line_field(y, field_w)
+    content.addSubview_(handler._title_field)
+    y -= 34
+
+    label("3. Reported by (auto-filled by Fetch, editable):", y)
+    y -= 26
+    handler._reporter_field = single_line_field(y, field_w)
+    content.addSubview_(handler._reporter_field)
+    y -= 34
+
+    # rootly content
+    label("Rootly / Confluence page content (auto-filled by Fetch, or paste):", y)
+    y -= 150
+    handler._rootly_tv = text_view(y, 142)
+    y -= 28
+
+    # slack dump
+    label("Slack channel dump (paste the full incident thread):", y)
+    y -= 150
+    handler._slack_tv = text_view(y, 142)
+    y -= 40
+
+    # buttons
+    gen_btn = NSButton.alloc().initWithFrame_(NSMakeRect(w - pad - 140, y, 140, 32))
+    gen_btn.setTitle_("Generate RCA")
+    gen_btn.setBezelStyle_(NSBezelStyleRounded)
+    gen_btn.setTarget_(handler)
+    gen_btn.setAction_(objc.selector(handler.doGenerate_, signature=b"v@:@"))
+    gen_btn.setKeyEquivalent_("\r")
+    content.addSubview_(gen_btn)
+
+    # "also save HTML" checkbox (Markdown is the default output)
+    from AppKit import NSSwitchButton
+    handler._html_checkbox = NSButton.alloc().initWithFrame_(NSMakeRect(pad + 100, y + 4, 200, 24))
+    handler._html_checkbox.setButtonType_(NSSwitchButton)
+    handler._html_checkbox.setTitle_("Also save HTML")
+    handler._html_checkbox.setState_(0)
+    content.addSubview_(handler._html_checkbox)
+
+    close_btn = NSButton.alloc().initWithFrame_(NSMakeRect(pad, y, 90, 32))
+    close_btn.setTitle_("Close")
+    close_btn.setBezelStyle_(NSBezelStyleRounded)
+    close_btn.setTarget_(handler)
+    close_btn.setAction_(objc.selector(handler.doClose_, signature=b"v@:@"))
+    content.addSubview_(close_btn)
+    y -= 56
+
+    # status line
+    handler._status = NSTextField.labelWithString_("Paste a Slack dump and/or fetch a Rootly page, then Generate.")
+    handler._status.setFrame_(NSMakeRect(pad, pad, field_w, 44))
+    handler._status.setFont_(NSFont.systemFontOfSize_(11.0))
+    handler._status.setSelectable_(True)
+    content.addSubview_(handler._status)
+
+    _install_edit_menu()       # Edit menu route for Cmd+C/V/X/A
+    _install_paste_monitor()   # belt-and-braces key monitor (the reliable one)
+    _rca_handler_ref = handler  # retain handler so callbacks survive
+    _rca_window_ref = panel
+    NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+    panel.makeKeyAndOrderFront_(None)
+
+
+def set_confluence_token_dialog():
+    """Prompt the user for Confluence base URL, email, and API token, then store them."""
+    from app.settings import set_confluence_config, read_state
+
+    _bring_to_front()
+    rumps.alert(
+        title="Confluence API Setup",
+        message=(
+            "To let Wattson fetch Rootly/Confluence pages by URL, create an API token:\n\n"
+            "1. Go to id.atlassian.com/manage-profile/security/api-tokens\n"
+            "2. Click 'Create API token', name it (e.g. Wattson RCA), copy it\n"
+            "3. Enter your site URL, email, and the token on the next screens\n\n"
+            "This is optional — you can always paste page content manually instead."
+        ),
+        ok="Continue",
+    )
+
+    state = read_state()
+    url_win = rumps.Window(
+        message="Confluence site / base URL (e.g. https://your-org.atlassian.net):",
+        title="Confluence URL",
+        default_text=state.get("confluence_base_url", ""),
+        ok="Next", cancel="Cancel", dimensions=(400, 24),
+    )
+    r = url_win.run()
+    if r.clicked == 0 or not r.text.strip():
+        return
+    base_url = r.text.strip()
+
+    email_win = rumps.Window(
+        message="Your Atlassian account email (e.g. you@example.com):",
+        title="Confluence Email",
+        default_text=state.get("confluence_email", ""),
+        ok="Next", cancel="Cancel", dimensions=(400, 24),
+    )
+    r = email_win.run()
+    if r.clicked == 0 or not r.text.strip():
+        return
+    email = r.text.strip()
+
+    token_win = rumps.Window(
+        message="Paste your Confluence API token:",
+        title="Confluence Token",
+        default_text="",
+        ok="Save", cancel="Cancel", dimensions=(400, 24),
+    )
+    r = token_win.run()
+    if r.clicked == 0 or not r.text.strip():
+        return
+    token = r.text.strip()
+
+    set_confluence_config(base_url, email, token)
+    rumps.alert(title="Saved", message="Confluence credentials stored. You can now fetch pages by URL in the RCA window.")
+
+
+# ---------------------------------------------------------------------------
 # First-Run Onboarding
 # ---------------------------------------------------------------------------
 
