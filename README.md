@@ -86,7 +86,7 @@ source ~/.zshrc
 | **Casual** | Soften to friendly, approachable tone. |
 | **Custom Voice** | Your own rules — fully user-defined, never overwritten on update. |
 
-All modes powered by Gemma 4 31B on Lightning AI (free tier). If a model is down, Wattson automatically falls back to the next available model and lets you know. Switch models from the menu bar.
+All modes powered by GPT-OSS 120B on Lightning AI (free tier) by default. Pick from a curated capable set — GPT-OSS 120B, Gemma 4 31B, DeepSeek V4 Pro, Nemotron Super 120B, Nemotron Ultra 550B, MiniMax M2.5 — right from the menu bar. If a model is down, Wattson automatically falls back to the next available model and lets you know.
 
 ## Editable Rules
 
@@ -274,4 +274,4 @@ app/
   config.py     — constants, model list, defaults
 ```
 
-Powered by Lightning AI's hosted models (Gemma 4 31B default). No local model needed.
+Powered by Lightning AI's hosted models (GPT-OSS 120B default). No local model needed.
