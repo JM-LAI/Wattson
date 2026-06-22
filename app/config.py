@@ -22,8 +22,8 @@ OLD_APP_SUPPORT = os.path.join(
     os.path.expanduser("~"), "Library", "Application Support", OLD_APP_NAME
 )
 
-# GPT-OSS 120B is the recommended default — fast and capable
-DEFAULT_MODEL = "lightning-ai/gpt-oss-120b"
+# Gemma 4 31B is the recommended default — fast and reliable
+DEFAULT_MODEL = "lightning-ai/gemma-4-31B-it"
 
 # RCA generation is a big task — use a capable model + long timeout
 RCA_MODEL = "lightning-ai/deepseek-v4-pro"
@@ -32,8 +32,8 @@ RCA_TIMEOUT = 120
 # curated capable set — display name -> model ID. all six verified live against
 # the Lightning AI /models endpoint and a real completion (Jun 2026).
 MODELS = {
-    "GPT-OSS 120B (Recommended)": "lightning-ai/gpt-oss-120b",
-    "Gemma 4 31B": "lightning-ai/gemma-4-31B-it",
+    "Gemma 4 31B (Recommended)": "lightning-ai/gemma-4-31B-it",
+    "GPT-OSS 120B": "lightning-ai/gpt-oss-120b",
     "DeepSeek V4 Pro": "lightning-ai/deepseek-v4-pro",
     "Nemotron Super 120B": "lightning-ai/nemotron-3-super-120b-a12b",
     "Nemotron Ultra 550B": "lightning-ai/nemotron-3-ultra-550b-a55b",
@@ -42,12 +42,12 @@ MODELS = {
 
 # fallback order when a model times out — tries these in sequence
 FALLBACK_MODELS = [
+    "lightning-ai/gemma-4-31B-it",
     "lightning-ai/gpt-oss-120b",
     "lightning-ai/deepseek-v4-pro",
     "lightning-ai/nemotron-3-super-120b-a12b",
     "lightning-ai/nemotron-3-ultra-550b-a55b",
     "lightning-ai/minimax-m2.5",
-    "lightning-ai/gemma-4-31B-it",
 ]
 
 MODES = ["Brand Voice", "Grammar Only", "Shorten", "Formal", "Casual", "Custom Voice"]
