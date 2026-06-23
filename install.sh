@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Wattson — one-liner installer
-# bash <(curl -sSL https://raw.githubusercontent.com/JM-LAI/Wattson/main/install.sh)
+# bash <(curl -sSL https://raw.githubusercontent.com/gridai/Wattson/main/install.sh)
 
 set -euo pipefail
 
@@ -13,7 +13,7 @@ RED='\033[1;31m'
 RESET='\033[0m'
 LINE="────────────────────────────────────────────────────────────"
 
-REPO_URL="https://github.com/JM-LAI/Wattson.git"
+REPO_URL="https://github.com/gridai/Wattson.git"
 INSTALL_DIR="${INSTALL_DIR:-${HOME}/Wattson}"
 KEYCHAIN_ACCOUNT="wattson"
 APP_NAME="Wattson"

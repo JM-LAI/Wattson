@@ -10,7 +10,7 @@ Built for CREs, non-native speakers, dyslexic folks, and anyone who wants consis
 2. Paste this and press Enter:
 
 ```bash
-bash <(curl -sSL https://raw.githubusercontent.com/JM-LAI/Wattson/main/install.sh)
+bash <(curl -sSL https://raw.githubusercontent.com/gridai/Wattson/main/install.sh)
 ```
 
 3. The installer will open the API key page in your browser — copy your key and paste it when prompted
