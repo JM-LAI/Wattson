@@ -503,7 +503,7 @@ class WattsonApp(rumps.App):
             new_words = len(result.split())
 
             # check if a fallback model was used and notify the user
-            from app.llm import last_fallback_model, _model_display_name
+            from app.llm import last_fallback_model
             if last_fallback_model:
                 fallback_name = _model_display_name(last_fallback_model)
                 original_name = _model_display_name(model)
