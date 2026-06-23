@@ -68,8 +68,13 @@ def _single_attempt(api_key: str, model: str, system_prompt: str, message: str, 
 last_fallback_model = None
 
 
-def call_model(message: str, model: str, system_prompt: str) -> str:
-    """Call the Lightning AI API. On timeout, auto-falls back through other models."""
+def call_model(message: str, model: str, system_prompt: str, on_fallback=None) -> str:
+    """Call the Lightning AI API. On timeout, auto-falls back through other models.
+
+    on_fallback: optional no-arg callback fired the moment the chosen model times
+    out and we start cycling — lets the UI toast the user instead of leaving them
+    staring at a spinner wondering if anything's happening.
+    """
     global last_fallback_model
     last_fallback_model = None
 
@@ -77,11 +82,17 @@ def call_model(message: str, model: str, system_prompt: str) -> str:
     if not api_key:
         raise ValueError("API key not set — add it in Settings")
 
-    # first try: the user's chosen model (shorter timeout since we have fallbacks)
+    # first try: the user's chosen model. keep this short — if Lightning's having
+    # a slow day we'd rather bail quickly and cycle than make the user wait.
     try:
-        return _single_attempt(api_key, model, system_prompt, message, timeout=20)
+        return _single_attempt(api_key, model, system_prompt, message, timeout=12)
     except requests.exceptions.Timeout:
         log(f"{_model_display_name(model)} timed out — trying fallbacks...")
+        if on_fallback:
+            try:
+                on_fallback()
+            except Exception:
+                pass
     except Exception as e:
         raise ValueError(_friendly_error(e)) from e
 
@@ -106,8 +117,8 @@ def call_model(message: str, model: str, system_prompt: str) -> str:
     )
 
 
-def rewrite(message: str, mode: str, model: str) -> str:
+def rewrite(message: str, mode: str, model: str, on_fallback=None) -> str:
     """Rewrite a message using the chat completions API with editable local rules."""
     system_prompt = get_system_prompt(mode)
     log(f"Rewriting via {model} (mode: {mode})")
-    return call_model(message, model, system_prompt)
+    return call_model(message, model, system_prompt, on_fallback=on_fallback)

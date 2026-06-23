@@ -18,7 +18,7 @@ from app.settings import (
 )
 from app.prompts import ensure_rules_dir, get_rules_path, get_rca_path, reset_rules
 from app.clipboard import copy_selection, replace_selection
-from app.llm import rewrite
+from app.llm import rewrite, _model_display_name
 from app.hotkeys import HotkeyListener
 from app.ui import (
     notify_success, notify_error, play_sound,
@@ -451,11 +451,22 @@ class WattsonApp(rumps.App):
 
             log(f"Rewriting {word_count} words in {mode} mode")
 
+            # fired the instant the chosen model times out — so the user knows
+            # we're cycling rather than wondering if Wattson froze.
+            current_name = _model_display_name(model)
+
+            def _on_fallback():
+                _run_on_main_thread(
+                    rumps.notification, "Wattson",
+                    f"{current_name} is slow to respond",
+                    "Lightning's API is having a moment — cycling models until one answers..."
+                )
+
             max_attempts = 3
             result = None
             for attempt in range(1, max_attempts + 1):
                 try:
-                    result = rewrite(text, mode, model)
+                    result = rewrite(text, mode, model, on_fallback=_on_fallback)
                     if result and result.strip():
                         break
                     log(f"Empty response (attempt {attempt}/{max_attempts})")
