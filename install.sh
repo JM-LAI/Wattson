@@ -176,13 +176,36 @@ fi
 cd "$INSTALL_DIR"
 
 # virtual environment + deps
+# An existing venv can go stale — e.g. its Python was a Homebrew build that's
+# since been upgraded/moved, leaving the interpreter to "Abort trap: 6" the
+# moment you run pip. So don't trust a .venv just because the folder's there:
+# prove it actually runs, and rebuild from scratch if it doesn't.
+venv_is_healthy() {
+    [[ -x ".venv/bin/python" ]] && .venv/bin/python -c "import sys" >/dev/null 2>&1
+}
+
+if [[ -d ".venv" ]] && ! venv_is_healthy; then
+    warn "Existing virtual environment looks broken — rebuilding it"
+    rm -rf .venv
+fi
+
 if [[ ! -d ".venv" ]]; then
     info "Creating virtual environment..."
     "$PYTHON_BIN" -m venv --copies .venv
 fi
+
 info "Installing dependencies..."
-.venv/bin/pip install --quiet --upgrade pip 2>/dev/null
-.venv/bin/pip install --quiet -r requirements.txt 2>/dev/null
+# upgrading pip is nice-to-have, not worth aborting the whole install over —
+# if it falls over (e.g. a half-dead venv we couldn't spot above), nuke the
+# venv, rebuild once, and carry on.
+if ! .venv/bin/python -m pip install --quiet --upgrade pip 2>/dev/null; then
+    warn "pip upgrade failed — rebuilding the virtual environment and retrying"
+    rm -rf .venv
+    "$PYTHON_BIN" -m venv --copies .venv
+    .venv/bin/python -m pip install --quiet --upgrade pip 2>/dev/null || \
+        warn "Couldn't upgrade pip — carrying on with the bundled version"
+fi
+.venv/bin/python -m pip install --quiet -r requirements.txt
 ok "Dependencies installed"
 
 # -----------------------------------------------------------------------
