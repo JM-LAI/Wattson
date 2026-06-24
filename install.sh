@@ -14,6 +14,8 @@ RESET='\033[0m'
 LINE="────────────────────────────────────────────────────────────"
 
 REPO_URL="https://github.com/gridai/Wattson.git"
+# public mirror for folks who don't have access to the gridai org
+REPO_URL_FALLBACK="https://github.com/JM-LAI/Wattson.git"
 INSTALL_DIR="${INSTALL_DIR:-${HOME}/Wattson}"
 KEYCHAIN_ACCOUNT="wattson"
 APP_NAME="Wattson"
@@ -169,7 +171,12 @@ elif [[ -f "$INSTALL_DIR/app/main.py" ]]; then
     ok "Project found at ${INSTALL_DIR} (not a git repo, skipping pull)"
 else
     info "Cloning repo to ${INSTALL_DIR}..."
-    git clone "$REPO_URL" "$INSTALL_DIR"
+    # try the grid repo first; not everyone's in that org, so fall back to the
+    # public JM-LAI mirror if the clone bounces (auth / access denied).
+    if ! git clone "$REPO_URL" "$INSTALL_DIR" 2>/dev/null; then
+        warn "Couldn't reach the grid repo — falling back to the public mirror"
+        git clone "$REPO_URL_FALLBACK" "$INSTALL_DIR"
+    fi
     ok "Cloned to ${INSTALL_DIR}"
 fi
 
