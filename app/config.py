@@ -12,6 +12,9 @@ LOG_PATH = os.path.join(
 
 CHAT_API_URL = "https://lightning.ai/api/v1/chat/completions"
 
+# matches bundle_identifier in wattson.spec — used for tccutil permission resets
+BUNDLE_ID = "com.lightning.wattson"
+
 KEYCHAIN_ACCOUNT = APP_NAME
 KEYCHAIN_API_KEY_SERVICE = "lightning-api-key"
 KEYCHAIN_CONFLUENCE_TOKEN_SERVICE = "confluence-api-token"
@@ -94,4 +97,7 @@ DEFAULT_STATE = {
     "input_monitoring_prompted": False,
     "confluence_base_url": "",
     "confluence_email": "",
+    # mtime of the app binary last time we ran — if it changes, the app was
+    # updated and macOS may have silently broken the TCC permissions
+    "last_binary_mtime": 0,
 }

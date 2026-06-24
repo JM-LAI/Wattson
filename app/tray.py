@@ -134,12 +134,32 @@ class WattsonApp(rumps.App):
             self._onboarding_timer = rumps.Timer(self._deferred_onboarding, 1.5)
             self._onboarding_timer.start()
         else:
+            # if the app binary changed since last run, it was updated — macOS
+            # likely broke the TCC grants, so re-arm the hotkey health check
+            # (it's otherwise a once-ever thing) to catch dead hotkeys post-update.
+            self._detect_update_and_rearm()
             # check permissions with retries (TCC can be slow right after login)
             self._perms_retries = 0
             self._perms_timer = rumps.Timer(self._check_permissions, 5.0)
             self._perms_timer.start()
 
         log("Wattson started")
+
+    def _detect_update_and_rearm(self):
+        """Spot an app update via the binary's mtime; if it changed, reset the
+        one-time hotkey-prompt gate so we re-check after the update breaks TCC."""
+        import sys
+        try:
+            mtime = int(os.path.getmtime(sys.executable))
+        except Exception:
+            return
+        last = self.state.get("last_binary_mtime", 0)
+        if last and mtime != last:
+            log("App binary changed since last run — re-arming hotkey health check")
+            self.state["input_monitoring_prompted"] = False
+        if mtime != last:
+            self.state["last_binary_mtime"] = mtime
+            write_state(self.state)
 
     def _check_permissions(self, _):
         """Check TCC with retries. Triggers native macOS prompt on first try.
@@ -180,30 +200,27 @@ class WattsonApp(rumps.App):
         self._im_timer.stop()
         if getattr(self, '_hotkey_ever_fired', False):
             return
-        log("No hotkey activity detected — prompting for Input Monitoring")
-        # mark so we don't nag again on next launch
+        log("No hotkey activity detected — offering permission repair")
+        # mark so we don't nag again on next launch (re-armed after an update)
         self.state["input_monitoring_prompted"] = True
         write_state(self.state)
 
-        app_bundle = _find_app_bundle()
-        subprocess.Popen(["open", "-R", app_bundle])
-        subprocess.Popen([
-            "open", "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
-        ])
         from app.ui import _bring_to_front
-        time.sleep(0.5)
         _bring_to_front()
-        rumps.alert(
-            title="Wattson — Input Monitoring",
+        fix = rumps.alert(
+            title="Wattson — Hotkeys not responding",
             message=(
-                "Almost there! Hotkeys need Input Monitoring permission.\n\n"
-                "I've opened the settings and highlighted Wattson.app in Finder.\n\n"
-                "1. Click the + button in Input Monitoring\n"
-                "2. Drag Wattson.app from Finder into the list\n"
-                "3. Toggle it ON\n\n"
-                "Hotkeys will work immediately after — no restart needed."
+                "Your hotkeys haven't fired yet, which usually means the "
+                "Accessibility / Input Monitoring permissions need a refresh — "
+                "common right after an update.\n\n"
+                "Want me to reset them and walk you through re-granting? "
+                "(If you just haven't used a hotkey yet, hit Ignore.)"
             ),
+            ok="Fix it",
+            cancel="Ignore",
         )
+        if fix:
+            self._fix_permissions(None)
 
     def _show_permission_instructions(self):
         """Fallback: manual instructions if native prompt doesn't work."""
@@ -865,10 +882,51 @@ class WattsonApp(rumps.App):
 
         threading.Thread(target=_test, daemon=True).start()
 
+    def _reset_tcc(self):
+        """Wipe Wattson's Accessibility + Input Monitoring TCC entries.
+
+        This is the bit that actually fixes the recurring 'hotkeys dead after an
+        update' problem. macOS ties the permission to the app's code signature, so
+        when the bundle gets replaced the old grant goes stale: System Settings
+        still shows Wattson ticked, but the event tap silently gets nothing.
+        Re-dragging does nothing because it's 'already there' — you have to clear
+        the entry first. tccutil reset does exactly that, no manual removing.
+        """
+        from app.config import BUNDLE_ID
+        for service in ("Accessibility", "ListenEvent"):
+            try:
+                subprocess.run(["tccutil", "reset", service, BUNDLE_ID],
+                               capture_output=True, timeout=5)
+                log(f"tccutil reset {service} {BUNDLE_ID}")
+            except Exception as e:
+                log(f"tccutil reset {service} failed: {e}")
+
     def _fix_permissions(self, _):
-        """Walk user through enabling permissions with Finder reveal."""
+        """Reset the stale TCC grants, then walk the user through re-adding."""
         from app.ui import _bring_to_front
         log("Fix Permissions triggered")
+
+        _bring_to_front()
+        go = rumps.alert(
+            title="Fix Hotkeys",
+            message=(
+                "This clears Wattson's Accessibility and Input Monitoring "
+                "permissions so you can grant them fresh — the usual fix when "
+                "hotkeys stop responding after an update.\n\n"
+                "I'll reset them, then walk you through re-adding the app. "
+                "Wattson will need a restart at the end.\n\n"
+                "Carry on?"
+            ),
+            ok="Reset & Fix",
+            cancel="Cancel",
+        )
+        if not go:
+            log("Fix Permissions cancelled")
+            return
+
+        # clear the stale entries first — this is what actually unsticks it
+        self._reset_tcc()
+
         app_bundle = _find_app_bundle()
         subprocess.Popen(["open", "-R", app_bundle])
         subprocess.Popen([
@@ -879,8 +937,9 @@ class WattsonApp(rumps.App):
         rumps.alert(
             title="Step 1 — Accessibility",
             message=(
-                "I've highlighted Wattson.app in Finder.\n\n"
-                "Drag it into the Accessibility list and toggle it ON.\n\n"
+                "I've cleared the old permission and highlighted Wattson.app in Finder.\n\n"
+                "If Wattson is still in the Accessibility list, select it and hit the "
+                "minus (–) to remove it, then drag it back in from Finder and toggle it ON.\n\n"
                 "Click OK when done."
             ),
         )
@@ -892,11 +951,24 @@ class WattsonApp(rumps.App):
         rumps.alert(
             title="Step 2 — Input Monitoring",
             message=(
-                "Now drag Wattson.app into Input Monitoring too.\n"
-                "Toggle it ON."
+                "Now do the same for Input Monitoring — remove Wattson if it's "
+                "there, then drag it back in and toggle it ON."
             ),
         )
+
+        _bring_to_front()
+        restart = rumps.alert(
+            title="Step 3 — Restart",
+            message=(
+                "Last step: Wattson needs a restart for the hotkeys to pick up "
+                "the fresh permissions.\n\nRestart now?"
+            ),
+            ok="Restart",
+            cancel="Later",
+        )
         log("Fix Permissions completed")
+        if restart:
+            self._restart(None)
 
     def _open_logs(self, _):
         from app.config import LOG_PATH
